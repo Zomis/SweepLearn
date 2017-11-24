@@ -25,11 +25,8 @@ import org.imgscalr.Scalr;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
-import org.nd4j.linalg.dataset.api.preprocessor.DataNormalization;
-import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.learning.config.Nesterovs;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
-import org.nd4j.linalg.util.ArrayUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,14 +46,14 @@ public class Main {
     protected static int width = 90;
     protected static int channels = 3;
     protected static int numExamples = 80;
-    protected static int numLabels = 3;
+    protected static int numLabels = 4; // 3;
     protected static int batchSize = 20;
 
     protected static long seed = 42;
     protected static Random rng = new Random(seed);
     protected static int listenerFreq = 1;
     protected static int iterations = 1;
-    protected static int epochs = 100;
+    protected static int epochs = 150; // 100;
     protected static double splitTrainTest = 0.8;
     protected static boolean save = false;
     private final NativeImageLoader imgLoader = new NativeImageLoader(height, width, channels);
@@ -118,27 +115,86 @@ public class Main {
 
 //        NativeImageLoader imgLoader = new NativeImageLoader(bigImageHeight, bigImageWidth, channels, imgCrop);
 
+        BufferedImage img = MyImageUtil.screenshot();
+//        play(useImage(img));
         play(() -> getClass().getClassLoader().getResourceAsStream("9x9-4.png"));
+    }
+
+    private Supplier<InputStream> useImage(BufferedImage img) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try {
+            ImageIO.write(img, "png", baos);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        byte[] out = baos.toByteArray();
+        return () -> new ByteArrayInputStream(out);
+    }
+
+    enum Field {
+        UNKN, NR_0(0), NR_1(1), NR_2(2),
+//        NR_3(3), NR_4(4),
+//        UNCLICKED,
+        FLAG;
+
+        private final int nr;
+        private boolean clicked;
+
+        Field() { this(-1); }
+        Field(int nr) {
+            this.nr = nr;
+        }
+        public int nr() {
+            return this.nr;
+        }
+
     }
 
     private void play(Supplier<InputStream> resource) {
         int left = 628 - 96;
         int top = 110;
-        int xx = left;
         int yy = top;
-        while (xx < 1350) {
-            double[] results = imageAt(resource.get(), xx, yy);
-            logger.info("Results at {}, {} = {}", xx, yy, Arrays.toString(results));
-            xx += 96;
+        Field[][] map = new Field[9][9];
+        int y = 0;
+        Field[] values = Field.values();
+        while (yy < 940) {
+            int xx = left;
+            int x = 0;
+            while (xx < 1350) {
+                double[] results = imageAt(resource.get(), xx, yy);
+                logger.info("Results at {}, {} ({}, {}) = {}", xx, yy, x, y, Arrays.toString(results));
+                xx += 96;
+                for (int i = 0; i < results.length; i++) {
+                    if (results[i] > 0.99) {
+                        map[y][x] = values[i + 1];
+                    }
+                }
+                x++;
+            }
+            yy += 96;
+            y++;
         }
+        System.out.println("MAP:");
+        for (Field[] row : map) {
+            System.out.println(Arrays.toString(row));
+        }
+
+        MapField[][] mapmap = new MapField[map.length][map[0].length];
+        for (y = 0; y < map.length; y++) {
+            for (int x = 0; x < map[x].length; x++) {
+                mapmap[y][x] = new MapField(x, y, map[y][x]);
+            }
+        }
+
+//        MyAnalyze analyze = new MyAnalyze();
+//        analyze.createRules();
+//        AnalyzeResult<Field> result = new MyAnalyze().solve();
     }
 
     private double[] imageAt(InputStream resource, int x, int y) {
         try {
-            logger.info("Image at {}, {}", x, y);
             // InputStream resource = new FileInputStream("image.png");
             InputStream stream = croppedStream(resource, x, y);
-            logger.info("Loading matrix");
             INDArray inputMatrix = imgLoader.asMatrix(stream);
             logger.info("Activating network with input with Matrix size " + Arrays.toString(inputMatrix.shape()));
             INDArray result = network.output(inputMatrix, false);// activate();// activate(inputMatrix);
