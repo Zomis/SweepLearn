@@ -1,5 +1,7 @@
 package net.zomis.sweeplearn;
 
+import net.zomis.minesweeper.analyze.AnalyzeResult;
+import net.zomis.minesweeper.analyze.FieldGroup;
 import org.datavec.api.io.filters.BalancedPathFilter;
 import org.datavec.api.io.labels.ParentPathLabelGenerator;
 import org.datavec.api.split.FileSplit;
@@ -33,8 +35,7 @@ import org.slf4j.LoggerFactory;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.util.Arrays;
-import java.util.Random;
+import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
@@ -46,24 +47,24 @@ public class Main {
     protected static int width = 90;
     protected static int channels = 3;
     protected static int numExamples = 80;
-    protected static int numLabels = 4; // 3;
+    protected static int numLabels = 5; // 4;
     protected static int batchSize = 20;
 
     protected static long seed = 42;
     protected static Random rng = new Random(seed);
     protected static int listenerFreq = 1;
     protected static int iterations = 1;
-    protected static int epochs = 150; // 100;
+    protected static int epochs = 300; // 250;
     protected static double splitTrainTest = 0.8;
     protected static boolean save = false;
     private final NativeImageLoader imgLoader = new NativeImageLoader(height, width, channels);
     private MultiLayerNetwork network;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         new Main().run();
     }
 
-    private void run() {
+    private void run() throws InterruptedException {
         network = alexnetModel();
         ParentPathLabelGenerator labelMaker = new ParentPathLabelGenerator();
         String mypath = "src/main/resources/sweepgrid/";
@@ -115,9 +116,23 @@ public class Main {
 
 //        NativeImageLoader imgLoader = new NativeImageLoader(bigImageHeight, bigImageWidth, channels, imgCrop);
 
-        BufferedImage img = MyImageUtil.screenshot();
-//        play(useImage(img));
-        play(() -> getClass().getClassLoader().getResourceAsStream("9x9-4.png"));
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            System.out.println("Press any key to run. Write 'exit' to stop");
+            String str = scanner.nextLine();
+            if (str.equals("pre")) {
+                play(scanner, () -> getClass().getClassLoader().getResourceAsStream("9x9-4.png"));
+            }
+            if (str.equals("exit")) {
+                break;
+            }
+            System.out.println("Small sleep");
+            Thread.sleep(3000);
+            System.out.println("Running now");
+
+            BufferedImage img = MyImageUtil.screenshot();
+            play(scanner, useImage(img));
+        }
     }
 
     private Supplier<InputStream> useImage(BufferedImage img) {
@@ -134,11 +149,10 @@ public class Main {
     enum Field {
         UNKN, NR_0(0), NR_1(1), NR_2(2),
 //        NR_3(3), NR_4(4),
-//        UNCLICKED,
+        UNCL,
         FLAG;
 
         private final int nr;
-        private boolean clicked;
 
         Field() { this(-1); }
         Field(int nr) {
@@ -150,7 +164,7 @@ public class Main {
 
     }
 
-    private void play(Supplier<InputStream> resource) {
+    private void play(Scanner scanner, Supplier<InputStream> resource) throws InterruptedException {
         int left = 628 - 96;
         int top = 110;
         int yy = top;
@@ -164,8 +178,9 @@ public class Main {
                 double[] results = imageAt(resource.get(), xx, yy);
                 logger.info("Results at {}, {} ({}, {}) = {}", xx, yy, x, y, Arrays.toString(results));
                 xx += 96;
+                map[y][x] = values[0];
                 for (int i = 0; i < results.length; i++) {
-                    if (results[i] > 0.99) {
+                    if (results[i] > 0.98) {
                         map[y][x] = values[i + 1];
                     }
                 }
@@ -181,14 +196,44 @@ public class Main {
 
         MapField[][] mapmap = new MapField[map.length][map[0].length];
         for (y = 0; y < map.length; y++) {
-            for (int x = 0; x < map[x].length; x++) {
+            for (int x = 0; x < map[y].length; x++) {
                 mapmap[y][x] = new MapField(x, y, map[y][x]);
             }
         }
 
-//        MyAnalyze analyze = new MyAnalyze();
-//        analyze.createRules();
-//        AnalyzeResult<Field> result = new MyAnalyze().solve();
+        MyAnalyze analyze = new MyAnalyze(mapmap);
+        analyze.createRules();
+        AnalyzeResult<MapField> result = analyze.solve();
+        System.out.println(result);
+        result.getSolutions().stream().forEach(System.out::println);
+
+        Optional<FieldGroup<MapField>> min = result.getGroups().stream().min(Comparator.comparingDouble(st -> st.getProbability()));
+        if (!min.isPresent()) {
+            System.out.println("Nothing present");
+            scanner.nextLine();
+            return;
+        }
+        for (MapField mf : min.get()) {
+            System.out.println("Clicking on " + mf + " unless you write 'skip'");
+            String text = scanner.nextLine();
+            if (text.equals("skip")) {
+                break;
+            }
+            Thread.sleep(3000);
+            click(left, top, mf.getX(), mf.getY());
+            if (min.get().getProbability() > 0.01) {
+                break;
+            }
+        }
+    }
+
+    private void click(int left, int top, int x, int y) {
+        int px = left + x * width + width / 2;
+        int py = top + y * height + height / 2;
+        px += width;
+        py += height;
+        MyRobot robot = new MyRobot();
+        robot.clickOn(px, py);
     }
 
     private double[] imageAt(InputStream resource, int x, int y) {
@@ -209,7 +254,7 @@ public class Main {
         BufferedImage img = ImageIO.read(imageInput);
         img = Scalr.crop(img, x, y, width, height);
         ByteArrayOutputStream tempStream = new ByteArrayOutputStream();
-        if (true) {
+        if (false) {
             File testFile = new File("temp" + x + "__" + y + ".png");
             ImageIO.write(img, "png", testFile);
         }

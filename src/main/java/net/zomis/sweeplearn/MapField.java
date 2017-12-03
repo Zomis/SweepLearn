@@ -5,7 +5,6 @@ public class MapField {
     private final int x;
     private final int y;
     private final Main.Field type;
-    private boolean clicked;
 
     public MapField(int x, int y, Main.Field field) {
         this.x = x;
@@ -26,11 +25,21 @@ public class MapField {
     }
 
     public boolean hasRule() {
-        return false;
+        return type.nr() >= 0;
     }
 
     public boolean isClicked() {
-        return clicked;
+        return type != Main.Field.UNCL && type != Main.Field.UNKN;
     }
+
+    @Override
+    public String toString() {
+        return "MapField{" +
+                "x=" + x +
+                ", y=" + y +
+                ", type=" + type +
+                '}';
+    }
+
 }
 
